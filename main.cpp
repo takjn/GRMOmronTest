@@ -36,6 +36,9 @@
 #include "BARO_2SMPB_02E.h"
 #include "LIS2DW12.h"
 
+#include "lvgl/lvgl.h"
+#include "lv_port_disp.h"
+#include "lv_port_indev.h"
 
 #ifndef MBED_CONF_APP_LCD
     #error "MBED_CONF_APP_LCD is not set"
@@ -61,9 +64,10 @@ static const uint32_t clut_data_resut[] = {0x00000000, 0xff000000};  // ARGB8888
 #define SENSOR_RAW_BUFFER_STRIDE    (((4 * 1) + 31u) & ~31u)
 #define SENSOR_RAW_BUFFER_HEIGHT    (4)
 #define SENSOR_WORK_BUFFER_STRIDE    (((VIDEO_PIXEL_HW * 1) + 31u) & ~31u)
+#define SENSOR_RESULT_BUFFER_STRIDE  (((LCD_PIXEL_WIDTH * 2) + 31u) & ~31u)
 static uint8_t fbuf_work_0[SENSOR_RAW_BUFFER_STRIDE * SENSOR_RAW_BUFFER_HEIGHT]__attribute((section("NC_BSS")));
 static uint8_t fbuf_work_1[SENSOR_WORK_BUFFER_STRIDE * FRAME_BUFFER_HEIGHT]__attribute((section("NC_BSS")));
-static uint8_t fbuf_sensor_result[FRAME_BUFFER_STRIDE_2 * VIDEO_PIXEL_VW]__attribute((section("NC_BSS")));
+uint8_t fbuf_sensor_result[SENSOR_RESULT_BUFFER_STRIDE * LCD_PIXEL_HEIGHT]__attribute((section("NC_BSS")));
 
 // Variables for DRP
 #define DRP_FLG_TILE_ALL       (R_DK2_TILE_0 | R_DK2_TILE_1 | R_DK2_TILE_2 | R_DK2_TILE_3 | R_DK2_TILE_4 | R_DK2_TILE_5)
@@ -72,8 +76,6 @@ static uint8_t drp_lib_id[R_DK2_TILE_NUM] = {0};
 static Thread drpTask(osPriorityHigh, 1024*8);
 static r_drp_simple_isp_t param_isp __attribute((section("NC_BSS")));
 static r_drp_resize_bilinear_t param_resize_bilinear __attribute((section("NC_BSS")));
-static uint8_t ram_drp_lib_simple_isp_bayer2yuv_6[sizeof(g_drp_lib_simple_isp_bayer2yuv_6)]__attribute((aligned(32)));
-static uint8_t ram_drp_lib_resize_bilinear[sizeof(g_drp_lib_resize_bilinear)]__attribute((aligned(32)));
 
 // Variables for omron sensor
 // D6T_44L_06
@@ -286,13 +288,13 @@ static void Start_LCD_Display(void) {
 
     // for sensor image
     rect.vs = 0;
-    rect.vw = VIDEO_PIXEL_VW;
+    rect.vw = LCD_PIXEL_HEIGHT;
     rect.hs = 0;
-    rect.hw = VIDEO_PIXEL_HW;
+    rect.hw = LCD_PIXEL_WIDTH;
     Display.Graphics_Read_Setting(
         DisplayBase::GRAPHICS_LAYER_2,
         (void *)fbuf_sensor_result,
-        FRAME_BUFFER_STRIDE_2,
+        SENSOR_RESULT_BUFFER_STRIDE,
         DisplayBase::GRAPHICS_FORMAT_ARGB4444,
         DisplayBase::WR_RD_WRSWA_32_16BIT,
         &rect
@@ -329,10 +331,6 @@ static void drp_task(void) {
     Start_Video_Camera();
     Start_LCD_Display();
 
-    // Copy to RAM to increase the speed of dynamic loading.
-    memcpy(ram_drp_lib_simple_isp_bayer2yuv_6, g_drp_lib_simple_isp_bayer2yuv_6, sizeof(ram_drp_lib_simple_isp_bayer2yuv_6));
-    memcpy(ram_drp_lib_resize_bilinear, g_drp_lib_resize_bilinear, sizeof(ram_drp_lib_resize_bilinear));
-
     R_DK2_Initialize();
 
     char str[64];
@@ -342,7 +340,7 @@ static void drp_task(void) {
         ThisThread::flags_wait_all(DRP_FLG_CAMER_IN);
 
         /* SimpleIsp bayer2yuv_6 */
-        R_DK2_Load(ram_drp_lib_simple_isp_bayer2yuv_6,
+        R_DK2_Load(g_drp_lib_simple_isp_bayer2yuv_6,
             R_DK2_TILE_0,
             R_DK2_TILE_PATTERN_6, NULL, &cb_drp_finish, drp_lib_id);
         R_DK2_Activate(0, 0);
@@ -378,9 +376,13 @@ static void drp_task(void) {
         R_DK2_Unload(0, drp_lib_id);
 
         uint16_t *p = (uint16_t*)fbuf_sensor_result;
+        uint j=0;
         for (uint i=0;i<sizeof(fbuf_work_1);i++) {
-            // p[i] = conv_normalize_to_color(display_alpha, (float(fbuf_work_1[i]) / 255.0));
-            p[i] = ((display_alpha << 12) | colors[fbuf_work_1[i]]);
+            // p[j++] = conv_normalize_to_color(display_alpha, (float(fbuf_work_1[i]) / 255.0));
+            p[j++] = ((display_alpha << 12) | colors[fbuf_work_1[i]]);
+            if (j % VIDEO_PIXEL_HW == 0) {
+                j += VIDEO_PIXEL_HW;
+            }
         }
 
         // Overlay some message
@@ -426,32 +428,32 @@ static void sensor_task(void) {
             fbuf_work_0[i]=a;
         }
 
-        printf("\x1b[%d;%dH", 0, 0);  // Move cursor (y , x)
-        printf("GR-MANGO x Omron 2JCIE-EV01 Demo\r\n\r\n");
+        // printf("\x1b[%d;%dH", 0, 0);  // Move cursor (y , x)
+        // printf("GR-MANGO x Omron 2JCIE-EV01 Demo\r\n\r\n");
 
-        sht30.read(&humi, &temp32);
-        printf("[SHT30-DIS-B] Temperature / humidity sensor\r\n");
-        printf("   temperature : %5.2f [degC]\r\n", temp32 / 100.0);
-        printf("   humidity    : %5.2f [%%RH]\r\n", humi / 100.0);
-        printf("\r\n");
+        // sht30.read(&humi, &temp32);
+        // printf("[SHT30-DIS-B] Temperature / humidity sensor\r\n");
+        // printf("   temperature : %5.2f [degC]\r\n", temp32 / 100.0);
+        // printf("   humidity    : %5.2f [%%RH]\r\n", humi / 100.0);
+        // printf("\r\n");
 
-        opt3001.read(&illm);
-        printf("[OPT3001DNP] Ambient light sensor\r\n");
-        printf("   illuminance : %5.2f [lx]\r\n", illm / 100.0);
-        printf("\r\n");
+        // opt3001.read(&illm);
+        // printf("[OPT3001DNP] Ambient light sensor\r\n");
+        // printf("   illuminance : %5.2f [lx]\r\n", illm / 100.0);
+        // printf("\r\n");
 
-        baro_2smpb.read(&pres, &temp16, &dp, &dt);
-        printf("[2SMPB-02E] MEMS digital barometric pressure sensor\r\n");
-        printf("   pressure    : %7.1f [Pa] (%08Xh)\r\n", pres / 10.0 , (unsigned int)dp);
-        printf("   temperature : %5.2f [degC] (%08Xh)\r\n", temp16 / 100.0, (unsigned int)dt);
-        printf("\r\n");
+        // baro_2smpb.read(&pres, &temp16, &dp, &dt);
+        // printf("[2SMPB-02E] MEMS digital barometric pressure sensor\r\n");
+        // printf("   pressure    : %7.1f [Pa] (%08Xh)\r\n", pres / 10.0 , (unsigned int)dp);
+        // printf("   temperature : %5.2f [degC] (%08Xh)\r\n", temp16 / 100.0, (unsigned int)dt);
+        // printf("\r\n");
 
-        lis2dw.read(accl);
-        printf("[LIS2DW12] MEMS digital motion sensor\r\n");
-        printf("   x : %5d [mg]\r\n", CONV_RAW_TO_MG(accl[0]));
-        printf("   y : %5d [mg]\r\n", CONV_RAW_TO_MG(accl[1]));
-        printf("   z : %5d [mg]\r\n", CONV_RAW_TO_MG(accl[2]));
-        printf("\r\n");
+        // lis2dw.read(accl);
+        // printf("[LIS2DW12] MEMS digital motion sensor\r\n");
+        // printf("   x : %5d [mg]\r\n", CONV_RAW_TO_MG(accl[0]));
+        // printf("   y : %5d [mg]\r\n", CONV_RAW_TO_MG(accl[1]));
+        // printf("   z : %5d [mg]\r\n", CONV_RAW_TO_MG(accl[2]));
+        // printf("\r\n");
     }
 }
 
@@ -466,6 +468,13 @@ static void button_fall1(void) {
     display_alpha--;
 }
 
+// Initialize LittlevGL
+static void littlevgl_init() {
+    lv_init();
+    lv_port_disp_init();
+    lv_port_indev_init();
+}
+
 int main(void) {
     // Pre-calculation for speed up
     init_colors();
@@ -473,6 +482,22 @@ int main(void) {
     // Set up button
     button0.fall(&button_fall0);
     button1.fall(&button_fall1);
+
+    // Initialize LittlevGL
+    littlevgl_init();
+
+    /*Add a button*/
+    lv_obj_t * btn1 = lv_btn_create(lv_scr_act(), NULL);             /*Add to the active screen*/
+    lv_obj_set_pos(btn1, 640, 640);                                    /*Adjust the position*/
+    // lv_btn_set_action(btn1, LV_BTN_ACTION_CLICK, my_click_action);   /*Assign a callback for clicking*/
+
+    /*Add text*/
+    lv_obj_t * label = lv_label_create(btn1, NULL);                  /*Put on 'btn1'*/
+    lv_label_set_text(label, "Click me");                            /*Modify the label's text*/
+                
+    // // Start LittlevGL theme
+    // uint16_t hue = 0;
+    // lv_test_theme_1(lv_theme_material_init(hue, NULL));
 
     // Start DRP task
     drpTask.start(callback(drp_task));
