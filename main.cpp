@@ -39,6 +39,7 @@
 #include "lvgl/lvgl.h"
 #include "lv_port_disp.h"
 #include "lv_port_indev.h"
+#include "lv_objects.h"
 
 #ifndef MBED_CONF_APP_LCD
     #error "MBED_CONF_APP_LCD is not set"
@@ -407,7 +408,7 @@ static void sensor_task(void) {
     int16_t temp16;
     int16_t accl[3];
 
-    printf("\x1b[2J");  // Clear screen
+    // printf("\x1b[2J");  // Clear screen
 
     // setup sensors
     d6t_44l.setup();
@@ -419,6 +420,7 @@ static void sensor_task(void) {
 
     while (true) {
         ThisThread::sleep_for(10);
+        display_alpha = get_alpha();
 
         if (d6t_44l.read(&pdta, &buf[0]) == false) {
             continue;
@@ -431,22 +433,27 @@ static void sensor_task(void) {
         // printf("\x1b[%d;%dH", 0, 0);  // Move cursor (y , x)
         // printf("GR-MANGO x Omron 2JCIE-EV01 Demo\r\n\r\n");
 
-        // sht30.read(&humi, &temp32);
+        sht30.read(&humi, &temp32);
         // printf("[SHT30-DIS-B] Temperature / humidity sensor\r\n");
         // printf("   temperature : %5.2f [degC]\r\n", temp32 / 100.0);
         // printf("   humidity    : %5.2f [%%RH]\r\n", humi / 100.0);
         // printf("\r\n");
+        chart1_set_next(temp32 / 100.0);
+        chart2_set_next(humi / 100.0);
 
-        // opt3001.read(&illm);
+        opt3001.read(&illm);
         // printf("[OPT3001DNP] Ambient light sensor\r\n");
         // printf("   illuminance : %5.2f [lx]\r\n", illm / 100.0);
         // printf("\r\n");
+        chart3_set_next(illm / 100.0);
 
-        // baro_2smpb.read(&pres, &temp16, &dp, &dt);
+        baro_2smpb.read(&pres, &temp16, &dp, &dt);
         // printf("[2SMPB-02E] MEMS digital barometric pressure sensor\r\n");
         // printf("   pressure    : %7.1f [Pa] (%08Xh)\r\n", pres / 10.0 , (unsigned int)dp);
         // printf("   temperature : %5.2f [degC] (%08Xh)\r\n", temp16 / 100.0, (unsigned int)dt);
         // printf("\r\n");
+        chart4_set_next(pres / 1000.0);
+        chart5_set_next(temp16 / 100.0);
 
         // lis2dw.read(accl);
         // printf("[LIS2DW12] MEMS digital motion sensor\r\n");
@@ -462,10 +469,12 @@ static void button_fall0(void) {
     if (display_alpha>0xF) {
         display_alpha = 0x0;
     }
+    set_alpha(display_alpha);
 }
 
 static void button_fall1(void) {
     display_alpha--;
+    set_alpha(display_alpha);
 }
 
 // Initialize LittlevGL
@@ -473,6 +482,9 @@ static void littlevgl_init() {
     lv_init();
     lv_port_disp_init();
     lv_port_indev_init();
+
+    // set up objects
+    lv_objects();
 }
 
 int main(void) {
@@ -485,19 +497,6 @@ int main(void) {
 
     // Initialize LittlevGL
     littlevgl_init();
-
-    /*Add a button*/
-    lv_obj_t * btn1 = lv_btn_create(lv_scr_act(), NULL);             /*Add to the active screen*/
-    lv_obj_set_pos(btn1, 640, 640);                                    /*Adjust the position*/
-    // lv_btn_set_action(btn1, LV_BTN_ACTION_CLICK, my_click_action);   /*Assign a callback for clicking*/
-
-    /*Add text*/
-    lv_obj_t * label = lv_label_create(btn1, NULL);                  /*Put on 'btn1'*/
-    lv_label_set_text(label, "Click me");                            /*Modify the label's text*/
-                
-    // // Start LittlevGL theme
-    // uint16_t hue = 0;
-    // lv_test_theme_1(lv_theme_material_init(hue, NULL));
 
     // Start DRP task
     drpTask.start(callback(drp_task));
