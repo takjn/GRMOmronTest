@@ -19,8 +19,7 @@
 /**********************
  *  STATIC PROTOTYPES
  **********************/
-static void btn_event_cb(lv_obj_t * btn, lv_event_t event);
-static void ddlist_event_cb(lv_obj_t * ddlist, lv_event_t event);
+
 
 /**********************
  *  STATIC VARIABLES
@@ -107,7 +106,7 @@ void lv_objects(void)
     slider = lv_slider_create(scr, NULL);
     lv_obj_set_size(slider, lv_obj_get_width(scr) / 2 - 100, LV_DPI / 3);
     lv_obj_set_x(slider, 50);
-    lv_obj_set_y(slider, 480 + 40);
+    lv_obj_set_y(slider, 480 + 80);
     lv_slider_set_range(slider, 0, 15);
     lv_slider_set_value(slider, 7, false);
 
@@ -116,9 +115,9 @@ void lv_objects(void)
     st.text.color = LV_COLOR_BLACK;
     st.text.font = &lv_font_roboto_28;
     lv_obj_t * title = lv_label_create(scr, NULL);
-    lv_label_set_text(title, "GR-MANGO OMRON sensor evaluation kit");
+    lv_label_set_text(title, "OMRON sensor evaluation kit on GR-MANGO");
     lv_obj_set_style(title, &st);
-    lv_obj_align(title, slider, LV_ALIGN_IN_TOP_LEFT, 0,100);
+    lv_obj_align(title, slider, LV_ALIGN_IN_TOP_LEFT, 0,80);
 
 
     /********************************************************************************
